@@ -77,7 +77,7 @@ for date_price in df.values:
     cq = get_last_day_of_the_current_quarter(curr_date) # cq = current quarter
     if curr_date == cq:
         eoq_data[curr_date] = float(date_price[1])
-    elif cq == datetime(9999,1,1):
+    elif cq == datetime(9999,1,1) or cq == datetime(1,1,1):
         # data of current quarter not available
         pass 
 

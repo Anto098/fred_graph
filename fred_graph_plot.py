@@ -1,37 +1,147 @@
-import sys
 import pandas as pd
-import plotly.graph_objects as go
 import matplotlib.pyplot as plt
-df = pd.read_csv(r'/home/anto/Documents/Coding/fred_graph/data.csv')
+import datetime as dt
+from datetime import date as date_class
+from datetime import timedelta, datetime
+from matplotlib.ticker import PercentFormatter
 
+df = pd.read_csv(r'/home/anto/Documents/Coding/fred_graph/data_27_05_2021.csv')
+# plot original date from FRED
 df = df[df.RRPONTSYD != "."]
-"""
-scatter = go.Scatter(x=df["DATE"], y=df["RRPONTSYD"], name="Billions USD")
-fig = go.Figure()
-fig.add_trace(trace=scatter)
-fig.update_layout(title="Overnight Reverse Repurchase Agreements", plot_bgcolor="rgb(230,230,230)", showlegend=True)
-fig.show()
-"""
-
-X = [value[0] for value in df.values]
+X = [dt.datetime.strptime(value[0], "%Y-%m-%d") for value in df.values]
 Y = [float(value[1]) for value in df.values]
-plt.plot(X, Y)
+# plt.plot(X, Y)
+# plt.xlabel("date")
+# plt.gcf().autofmt_xdate()
+# plt.ylabel("RRPONTSYD")
+# plt.title("Overnight Reverse Repurchase Agreements")
+# plt.show()
+
+
+def get_quarter(p_date: date_class) -> int:
+    return (p_date.month - 1) // 3 + 1
+
+
+def get_first_day_of_the_quarter(p_date: date_class):
+    return datetime(p_date.year, 3 * ((p_date.month - 1) // 3) + 1, 1)
+
+
+def get_last_day_of_the_current_quarter(p_date: date_class):
+    quarter = get_quarter(p_date)
+    ldotq =  datetime(p_date.year + 3 * quarter // 12, 3 * quarter % 12 + 1, 1) + timedelta(days=-1)
+    while ldotq not in X:
+        try:
+            # while this is not a trading day, check if previous day is a trading day
+            ldotq = datetime(ldotq.year,ldotq.month, ldotq.day-1)
+        except:
+            # if we don't have the info for that month, it is too far in the future. 
+            # In that case, return 1,1,1 as convention
+            ldotq = datetime(9999,1,1)
+            break
+    return ldotq
+
+
+def get_last_day_of_the_previous_quarter(p_date: date_class):
+    pq = None
+    if p_date.month < 4:
+        pq = datetime(p_date.year - 1, 12, 31)
+    elif p_date.month < 7:
+        pq = datetime(p_date.year, 3, 31)
+    elif p_date.month < 10:
+        pq = datetime(p_date.year, 6, 30)
+    else:
+        pq = datetime(p_date.year, 9, 30)
+    
+    while pq not in X:
+        try:
+            pq = datetime(pq.year,pq.month,pq.day-1)
+        except:
+            # If error (shouldn't happen in theory)
+            pq = datetime(1,1,1)
+            break
+    return pq
+
+
+def get_closest_end_of_quarter(p_date: date_class):
+    #current quarter / previous quarter
+    cq = get_last_day_of_the_current_quarter(p_date)
+    pq = get_last_day_of_the_previous_quarter(p_date)
+    #distance current quarter/previous quarter
+    d_cq = cq-p_date
+    d_pq = p_date-pq
+    #return closest end of quarter
+    if p_date == datetime(2021,4,5):
+        print(f"cq : {cq}, pq : {pq}, d_cq : {d_cq}, d_pq : {d_pq}")
+    if d_cq < d_pq:
+        return cq
+    else:
+        return pq
+
+
+assert get_quarter(datetime(year=2021, month=10, day=5).date()) == 4
+assert get_quarter(datetime(year=2020, month=9, day=25).date()) == 3
+assert get_quarter(datetime(year=2020, month=12, day=11).date()) == 4
+assert get_quarter(datetime(year=2020, month=1, day=2).date()) == 1
+
+assert get_first_day_of_the_quarter(datetime(2020, 10, 5).date()) == datetime(2020, 10, 1)
+assert get_first_day_of_the_quarter(datetime(2020, 9, 25).date()) == datetime(2020, 7, 1)
+assert get_first_day_of_the_quarter(datetime(2020, 12, 11).date()) == datetime(2020, 10, 1)
+assert get_first_day_of_the_quarter(datetime(2020, 1, 2).date()) == datetime(2020, 1, 1)
+
+assert get_last_day_of_the_current_quarter(datetime(2020, 10, 5).date()) == datetime(2020, 12, 31)
+assert get_last_day_of_the_current_quarter(datetime(2020, 9, 25).date()) == datetime(2020, 9, 30)
+assert get_last_day_of_the_current_quarter(datetime(2020, 12, 11).date()) == datetime(2020, 12, 31)
+assert get_last_day_of_the_current_quarter(datetime(2020, 1, 2).date()) == datetime(2020, 3, 31)
+assert get_last_day_of_the_current_quarter(datetime(2020, 5, 6).date()) == datetime(2020, 6, 30)
+
+
+# put eoq data in eoq_data (eoq = end of quarter)
+# fill data with dict containing { datetime(eoq_date):price}
+eoq_data = {}
+for date_price in df.values:
+    curr_date = datetime.strptime(date_price[0], "%Y-%m-%d")
+    ldotq = get_last_day_of_the_current_quarter(curr_date)    
+    if curr_date == ldotq:
+        eoq_data[curr_date] = float(date_price[1])
+    elif ldotq == datetime(1,1,1):
+        break 
+
+
+data = df.copy(deep=True)
+data = data.values
+data = dict((datetime.strptime(value[0], "%Y-%m-%d"), float(value[1])) for value in data )
+
+# it would probably be better just not to print these sections
+for d in data:
+    if data[d] < 1.0 and d in eoq_data:
+        print(f"{d} : {eoq_data[d]}")
+        # if eoq is less than 1, you might get some funny percentages :)
+        data[d] = 10
+
+data_in_percentage = {}
+for d in data:
+    q = get_closest_end_of_quarter(d)
+    if q == datetime(1,1,1):
+        print(f"(1,1,1) : {d}")
+        break
+    else:
+        if data[q] > 25:
+            print("=====")
+            print(f"data before percentaging it {d.date()}, {q.date()} : {data[d]}")
+            data_in_percentage[d] = round(data[d]/data[q],2)
+            print(f"data after  percentaging it {d.date()}, {q.date()} : {data_in_percentage[d]}")
+        
+    
+# plot data in percentage relative to peak (closest quarter end)
+
+X_percentage = [d for d in data_in_percentage]
+Y_percentage = [data_in_percentage[d] for d in data_in_percentage]
+
+plt.plot(X_percentage, Y_percentage)
 plt.xlabel("date")
 plt.gcf().autofmt_xdate()
-plt.ylabel("RRPONTSYD")
-plt.title("Overnight Reverse Repurchase Agreements")
+plt.ylabel("Percentage of reverse repo relative to nearest end of quarter")
+plt.title("Overnight Reverse Repurchase Agreements In Percentage relative to closest EOQ")
 plt.show()
 
-"""
-df = pd.read_csv("https://raw.githubusercontent.com/plotly/datasets/master/2014_apple_stock.csv")
-X = [value[0] for value in df.values]
-Y = [value[1] for value in df.values]
-plt.plot(X, Y)
-plt.xlabel("date")
-plt.gcf().autofmt_xdate()
-plt.ylabel("AAPL share price")
-plt.title("AAPL price over time")
-
-plt.show()
-"""
 
